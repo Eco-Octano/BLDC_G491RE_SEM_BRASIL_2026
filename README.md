@@ -68,6 +68,11 @@ src/
   drv8353.cpp       transporte, configuração, falha, auto-zero
   clock_config.cpp  170 MHz + clock de kernel do ADC
   main.cpp          aplicação de bring-up
+boards/
+  nucleo_g491re_arduino.json      board customizado (ver Armadilhas)
+tools/
+  install_variant.py              roda antes de cada build
+  variant_NUCLEO_G491RE_ARDUINO.h
 ```
 
 ### `clock_config.cpp` não é opcional
@@ -94,9 +99,25 @@ Use a porta da **FTDI**, não a VCP do ST-Link: a USART2 que alimenta a VCP tem
 o TX em PA2, e PA2 aqui é o `LSCS_A`. O console é USART1 — **PB6 é TX, PB7 é
 RX**, não inverter.
 
-No Windows, o GNU `ld` não lida com acento no caminho do projeto: o build falha
-com `cannot open map file`. Use um caminho ASCII ou as linhas `build_dir` /
-`libdeps_dir` comentadas no `platformio.ini`.
+### Armadilhas da NUCLEO-G491RE no PlatformIO
+
+As cinco linhas marcadas `[G491]` no `platformio.ini` não são opcionais. Cada
+uma corresponde a um build que falha de um jeito diferente:
+
+| # | sintoma sem a linha | causa |
+|---|---|---|
+| 1 | `Error: This board doesn't support arduino framework!` | o board oficial `nucleo_g491re` só declara `stm32cube`. Daí o JSON em `boards/` |
+| 2 | `variant_NUCLEO_G491RE_ARDUINO.h: No such file or directory` | o PlatformIO deriva o nome do header do ID do board, e a variante genérica só tem `variant_generic.h`. O `install_variant.py` copia um redirecionamento para dentro do pacote do framework — ele some a cada reinstalação, por isso é script e não cópia manual |
+| 3 | **HardFault antes do `main()`**, sem mensagem nenhuma | o core declara 128 KB de RAM porque a variante é compartilhada com o G4A1. O G491 tem 112 KB contíguos (a CCM fica em endereço separado). O linker põe a pilha em memória inexistente |
+| 4 | `Debug adapter doesn't support 'hla_swd' transport` | a placa tem ST-Link **V3E**, que fala `dapdirect_swd`; o `upload_protocol=stlink` padrão assume V2 |
+| 5 | firmware grava e não roda | gravar o `.bin` em vez do `.elf`: o `.bin` não carrega endereço e vai parar em `0x00000000` |
+
+A 3 é a pior: compila, grava, e o firmware morre em silêncio antes da primeira
+linha do seu código.
+
+No Windows há ainda uma sexta: o GNU `ld` não lida com acento no caminho do
+projeto e o build falha com `cannot open map file`. Use um caminho ASCII ou as
+linhas `build_dir` / `libdeps_dir` comentadas no fim do `platformio.ini`.
 
 ### Comandos do console
 

@@ -1,17 +1,12 @@
-# install_variant.py - [G491] instala o header de variante automaticamente
+# Instala o header de variante dentro do pacote do framework antes de cada
+# build. Necessário porque o PlatformIO deriva o nome do header do ID do
+# board (nucleo_g491re_arduino -> variant_NUCLEO_G491RE_ARDUINO.h) e a
+# variante genérica do G491 só tem variant_generic.h.
 #
-# Roda antes de cada build (extra_scripts = pre:...). Copia
-# tools/variant_NUCLEO_G491RE_ARDUINO.h para dentro do pacote do framework,
-# SE ele ainda nao estiver la'.
-#
-# Por que existe: o PlatformIO deriva o nome do header de variante a partir
-# do ID do board (nucleo_g491re_arduino -> variant_NUCLEO_G491RE_ARDUINO.h).
-# A variante generica do G491 so' tem variant_generic.h, e o build falha.
-# O header precisa morar DENTRO do pacote, porque os fontes do framework sao
-# compilados num ambiente que nao enxerga a pasta include/ do projeto.
-#
-# Colocar a copia a mao funciona, mas some em cada computador novo, em cada
-# reinstalacao e em cada atualizacao do framework. Este script resolve isso.
+# O header precisa morar dentro do pacote: os fontes do framework são
+# compilados num ambiente que não enxerga a pasta include/ do projeto.
+# Copiar a mão funciona, mas some a cada reinstalação e a cada computador
+# novo da equipe.
 
 Import("env")
 import os
