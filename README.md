@@ -43,11 +43,10 @@ velocidade que o projeto não precisa.
 
 ### Errata menores
 
-- **Pull-up do SDO no net errado.** O resistor de 10 k da Ouroboros ficou no
-  net do pino 30, que o esquemático acredita ser o SDO. O pino 29 ficou sem
-  pull-up. O firmware usa `INPUT_PULLUP` interno (~40 kΩ), que basta porque a
-  fase do bit-bang dura 2 µs contra τ ≈ 800 ns. Para subir a velocidade,
-  soldar 10 k do pino 29 para o 3V3 (τ ≈ 200 ns).
+- **Pull-ups do SPI.** O SDO do driver (pino 29, open-drain) tem pull-up de
+  4,7 k na placa; o SDI (pino 30) tem 10 k na Artemis, que apenas carrega o
+  PC11 e é inofensivo. O firmware lê o SDO com `INPUT`, sem pull-up interno.
+  Para SPI mais rápido, trocar o do pino 29 por 2,2 kΩ.
 - **Jumper J7 do nFAULT.** Seleciona entre o pull-up da Artemis (4,7 k,
   populado) e o da Ouroboros (**não populado**). Tem que estar na posição da
   Artemis. O LED indicador é ligado *antes* do jumper e acende mesmo com o
@@ -192,8 +191,6 @@ Para apenas limpar uma falha sem perder a configuração, use o pulso `tRST`
 - [ ] Dimensionar `GATE_DRIVE_HS`, `GATE_DRIVE_LS` e `OCP_CONTROL` contra a
       carga de gate dos MOSFETs escolhidos. Os defaults são os valores de
       reset — seguros para bancada, não dimensionados para potência.
-- [ ] Pull-up externo de 10 k no pino 29 (SDO) se quiser subir a velocidade
-      do bit-bang.
 - [ ] Corrigir a ERRATA 001 no esquemático da próxima revisão.
 - [ ] M3 halls, M4 malha aberta, M6 alinhamento, M7 malha de corrente,
       M8 aplicação, M9 segurança, M10 experimento comparativo inline × low-side.

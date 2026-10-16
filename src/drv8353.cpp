@@ -1,14 +1,12 @@
 #include "drv8353.h"
 
 // Modo 1: SDO propaga na subida, SDI é capturado na descida.
-// INPUT_PULLUP porque o pull-up de 10 k da placa ficou no net errado
-// (errata). O interno de ~40 k basta aqui: a fase dura 2 us contra uma
-// constante RC de ~800 ns.
+// O SDO do driver é open-drain; o pull-up de 4,7 k fica na placa.
 uint16_t DRV8353::transferir(uint16_t quadro)
 {
     pinMode(DRV_PINO_SCLK, OUTPUT);
     pinMode(DRV_PINO_SDI,  OUTPUT);
-    pinMode(DRV_PINO_SDO,  INPUT_PULLUP);
+    pinMode(DRV_PINO_SDO,  INPUT);
 
     digitalWrite(DRV_PINO_SCLK, LOW);
     digitalWrite(DRV_PINO_NSCS, LOW);
@@ -37,7 +35,7 @@ bool DRV8353::begin()
     pinMode(DRV_PINO_SCLK, OUTPUT);
     digitalWrite(DRV_PINO_SCLK, LOW);
     pinMode(DRV_PINO_SDI, OUTPUT);
-    pinMode(DRV_PINO_SDO, INPUT_PULLUP);
+    pinMode(DRV_PINO_SDO, INPUT);
     pinMode(DRV_PINO_NFAULT, INPUT);
 
     pinMode(DRV_PINO_ENABLE, OUTPUT);
