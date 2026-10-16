@@ -33,6 +33,8 @@ static inline uint16_t drv_quadro_escrita(uint8_t reg, uint16_t dado) {
 // Lidos do chip em bancada, não copiados de anotação. Servem de gabarito:
 // o dump batendo com todos prova o barramento nos dois sentidos.
 // 0x04 resetando em 0x7FF é o único caso em que "tudo em um" é correto.
+// O SLVSDY6 se contradiz no reset do 0x05 (figura e tabela divergem em
+// OCP_DEG e VDS_LVL); vale o lido: 0x16D = deglitch 4 us e VDS 1 V.
 static const uint16_t DRV_RESET[DRV_NUM_REGS] = {
     0x000, 0x000, 0x000, 0x3FF, 0x7FF, 0x16D, 0x283, 0x000
 };
@@ -55,7 +57,7 @@ static const uint16_t DRV_RESET[DRV_NUM_REGS] = {
 #define DRV_F2_SB_OC        (1u <<  9)
 #define DRV_F2_SC_OC        (1u <<  8)
 #define DRV_F2_OTW          (1u <<  7)
-#define DRV_F2_CPUV         (1u <<  6)
+#define DRV_F2_GDUV         (1u <<  6)   // VCP ou VGLS abaixo do limite
 #define DRV_F2_VGS_HA       (1u <<  5)
 #define DRV_F2_VGS_LA       (1u <<  4)
 #define DRV_F2_VGS_HB       (1u <<  3)
@@ -75,8 +77,21 @@ static const uint16_t DRV_RESET[DRV_NUM_REGS] = {
 #define DRV_DC_BRAKE        (1u <<  1)
 #define DRV_DC_CLR_FLT      (1u <<  0)   // auto-limpa após a escrita
 
-enum : uint16_t { DRV_PWM_6X = 0, DRV_PWM_3X = 1, DRV_PWM_1X = 2, DRV_PWM_IND = 3 };
-#define DRV_PWM_MODE(m)  ((uint16_t)(m) << DRV_DC_PWM_MODE_POS)
+// 0x03 GATE_DRIVE_HS e 0x04 GATE_DRIVE_LS
+#define DRV_GD_LOCK_POS     8            // só no 0x03
+#define DRV_LOCK_DESTRAVADO 0x3u         // 011b, valor de reset
+#define DRV_LOCK_TRAVADO    0x6u         // 110b
+#define DRV_GDLS_CBC        (1u << 10)   // só no 0x04
+#define DRV_GDLS_TDRIVE_POS 8            // só no 0x04
+#define DRV_GD_IDRIVEP_POS  4
+#define DRV_GD_IDRIVEN_POS  0
+
+// 0x05 OCP_CONTROL
+#define DRV_OCP_TRETRY_POS  10
+#define DRV_OCP_DEAD_POS    8
+#define DRV_OCP_MODE_POS    6
+#define DRV_OCP_DEG_POS     4
+#define DRV_OCP_VDS_POS     0
 
 // 0x06 CSA_CONTROL. Reset 0x283 = VREF_DIV | ganho 20 V/V | SEN_LVL 1,0 V.
 #define DRV_CSA_FET         (1u << 10)
@@ -89,9 +104,5 @@ enum : uint16_t { DRV_PWM_6X = 0, DRV_PWM_3X = 1, DRV_PWM_1X = 2, DRV_PWM_IND = 
 #define DRV_CSA_CAL_C       (1u <<  2)
 #define DRV_CSA_SEN_LVL_POS 0
 
-enum : uint16_t { DRV_GANHO_5 = 0, DRV_GANHO_10 = 1, DRV_GANHO_20 = 2, DRV_GANHO_40 = 3 };
-#define DRV_CSA_GAIN(g)  ((uint16_t)(g) << DRV_CSA_GAIN_POS)
-
-// 0x03, 0x04 e 0x05 controlam IDRIVE, TDRIVE, tempo morto e proteção de
-// sobrecorrente. Os campos não estão mapeados aqui porque o valor correto
-// depende da carga de gate dos MOSFETs escolhidos. Ver SLVSDY6 e o README.
+// 0x07 DRIVER_CONFIG. Bits 10..1 reservados, escrever 0.
+#define DRV_DCFG_CAL_MODE   (1u <<  0)

@@ -2,21 +2,66 @@
 // Console: USART1 a 115200, porta da FTDI. Ver README.
 
 #include <Arduino.h>
+#include <DRV8353.h>
 #include "board_pins.h"
-#include "drv8353.h"
 
 // Sem MOSFETs soldados o driver declara GDF corretamente e sem parar.
 // Ponha em 0 depois de soldar, senão você mascara uma falha de verdade.
 #define PLACA_SEM_ESTAGIO_DE_POTENCIA   1
 
 HardwareSerial Dbg(CONSOLE_RX, CONSOLE_TX);
-DRV8353        drv;
-DrvConfig      cfg;
+
+DRV8353 drv({
+    DRV_PINO_SCLK,   DRV_PINO_NSCS,
+    DRV_PINO_SDI,    DRV_PINO_SDO,
+    DRV_PINO_ENABLE, DRV_PINO_NFAULT
+});
+DrvConfig cfg;
+
+// Configuração do DRV8353RS. Os valores abaixo são os de reset do chip;
+// as opções de cada campo estão em lib/DRV8353/DRV8353.h. Gate drive e
+// OCP ainda NÃO estão dimensionados: não ligue PWM com eles. Depois de
+// mudar algo, grave e confira com 'g'.
+static void configurarDriver(DrvConfig& c)
+{
+    // Modo de PWM e reação a falhas (0x02)
+    c.modo_pwm                = ModoPwm::x6;       // x6, x3, x1, Independente
+    c.pwm1x_assincrono        = false;             // só no modo x1
+    c.ocp_desliga_tres_bracos = false;             // false: só o braço em falha
+    c.otw_no_nfault           = false;             // aviso térmico também no nFAULT
+    c.mascarar_gdf            = PLACA_SEM_ESTAGIO_DE_POTENCIA;
+    c.mascarar_gduv           = false;
+
+    // Gate drive (0x03 high-side, 0x04 low-side)
+    c.idrivep_hs = IdriveP::mA1000;                // 50 a 1000 mA
+    c.idriven_hs = IdriveN::mA2000;                // 100 a 2000 mA
+    c.idrivep_ls = IdriveP::mA1000;
+    c.idriven_ls = IdriveN::mA2000;
+    c.tdrive     = TDrive::ns4000;                 // ns500, ns1000, ns2000, ns4000
+
+    // Tempo morto e sobrecorrente por VDS (0x05)
+    c.tempo_morto       = TempoMorto::ns100;       // ns50, ns100, ns200, ns400
+    c.modo_ocp          = ModoOcp::Retry;          // Trava, Retry, SoReporta, Desligado
+    c.nivel_vds         = NivelVds::V1_00;         // V0_06 a V2_00
+    c.deglitch_ocp      = DeglitchOcp::us4;        // us1, us2, us4, us8
+    c.tempo_retry       = TempoRetry::ms8;         // ms8, us50
+    c.ocp_ciclo_a_ciclo = true;                    // só vale com ModoOcp::Retry
+
+    // Amplificadores de corrente low-side (0x06, 0x07)
+    c.ganho_csa         = GanhoCsa::x20;           // x5, x10, x20, x40
+    c.csa_bidirecional  = true;                    // saída repousa em VREF/2
+    c.csa_entrada_shx   = false;                   // true: mede pelo RDS(on), sem shunt
+    c.vds_ls_ref_snx    = false;
+    c.nivel_sen         = NivelSen::V1_00;         // V0_25, V0_50, V0_75, V1_00
+    c.sen_ocp_desligado = false;
+    c.autocalibracao    = false;
+}
 
 static void ajuda()
 {
     Dbg.println(F("\n--------------- comandos ---------------"));
     Dbg.println(F("  d  dump dos 8 registradores"));
+    Dbg.println(F("  g  configuracao lida do chip, em unidades"));
     Dbg.println(F("  s  status de falha decodificado"));
     Dbg.println(F("  c  limpa falha por SPI (CLR_FLT)"));
     Dbg.println(F("  p  pulso tRST no ENABLE"));
@@ -67,6 +112,15 @@ static void autoZero()
     Dbg.println(F("  esperado ~1,65 V (VREF/2). Zero: ver README."));
 }
 
+static void imprimirDivergentes()
+{
+    const uint8_t m = drv.registradoresDivergentes();
+    Dbg.print(F("  registradores divergentes:"));
+    for (uint8_t r = 0; r < DRV_NUM_REGS; r++)
+        if (m & (1u << r)) { Dbg.print(F(" 0x0")); Dbg.print(r); }
+    Dbg.println();
+}
+
 // A falha de conferência era intermitente: só uma série longa prova a
 // correção do tWAKE. Termina com o driver acordado e configurado.
 static void testeCiclos()
@@ -92,7 +146,10 @@ static void acordarEConfigurar()
     Dbg.println(F("\n=== ACORDAR E CONFIGURAR ==="));
     const bool ok = drv.acordar(cfg);
     Dbg.print(F("  conferencia: ")); Dbg.println(ok ? F("OK") : F("FALHOU"));
-    if (!ok) Dbg.println(F("  >> NAO LIGUE O PWM."));
+    if (!ok) {
+        imprimirDivergentes();
+        Dbg.println(F("  >> NAO LIGUE O PWM."));
+    }
 
     const DrvFalhas f = drv.lerFalhas();
     drv.imprimirFalhas(Dbg, f);
@@ -114,14 +171,15 @@ void setup()
     Dbg.println(F("#############################################"));
 
     drv.begin();
+    configurarDriver(cfg);
 
 #if PLACA_SEM_ESTAGIO_DE_POTENCIA
-    cfg.mascarar_gdf = true;
     Dbg.println(F("\n  [!] GDF mascarado (placa sem estagio de potencia)."));
 #endif
 
     acordarEConfigurar();
     drv.dump(Dbg);
+    drv.imprimirConfig(Dbg);
     ajuda();
 }
 
@@ -147,6 +205,7 @@ void loop()
     if (!Dbg.available()) return;
     switch (Dbg.read()) {
         case 'd': drv.dump(Dbg); break;
+        case 'g': drv.imprimirConfig(Dbg); break;
         case 's': { const DrvFalhas f = drv.lerFalhas();
                     Dbg.println(F("\n=== STATUS DE FALHA ==="));
                     drv.imprimirFalhas(Dbg, f); } break;

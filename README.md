@@ -61,12 +61,13 @@ velocidade que o projeto não precisa.
 ```
 include/
   board_pins.h      pinagem verificada + errata
-  drv8353_regs.h    mapa de registradores e bits
-  drv8353.h         API do driver
+lib/DRV8353/
+  DRV8353.h         API do driver e opções de configuração (enums)
+  DRV8353_regs.h    mapa de registradores e bits
+  DRV8353.cpp       transporte, configuração, falha, auto-zero
 src/
-  drv8353.cpp       transporte, configuração, falha, auto-zero
   clock_config.cpp  170 MHz + clock de kernel do ADC
-  main.cpp          aplicação de bring-up
+  main.cpp          aplicação de bring-up; configurarDriver() fica aqui
 boards/
   nucleo_g491re_arduino.json      board customizado (ver Armadilhas)
 tools/
@@ -123,6 +124,7 @@ linhas `build_dir` / `libdeps_dir` comentadas no fim do `platformio.ini`.
 | tecla | ação |
 |---|---|
 | `d` | dump dos 8 registradores |
+| `g` | configuração lida do chip, em unidades físicas (mA, ns, V) |
 | `s` | status de falha decodificado |
 | `c` | limpa falha por SPI (CLR_FLT) |
 | `p` | pulso `tRST` no ENABLE — limpa falha **sem** perder configuração |
@@ -131,6 +133,26 @@ linhas `build_dir` / `libdeps_dir` comentadas no fim do `platformio.ini`.
 | `t` | cronometra 100 transações |
 | `a` | auto-zero dos CSAs |
 | `r` | 30 ciclos dormir → acordar, conta falhas de conferência |
+
+### Configurar o driver
+
+Toda a configuração do DRV8353RS fica em `configurarDriver()`, no topo do
+`main.cpp`, com um campo por linha e as opções válidas no comentário:
+
+```cpp
+c.idrivep_hs  = IdriveP::mA300;      // corrente de pico que liga o MOSFET
+c.tempo_morto = TempoMorto::ns200;
+c.ganho_csa   = GanhoCsa::x40;
+```
+
+Os nomes das opções carregam a unidade, então não há bits para montar: a
+biblioteca traduz para os registradores e confere cada um depois de escrever.
+Se a conferência falhar, `w` mostra quais registradores divergiram. Depois de
+gravar, `g` lê o chip e mostra a configuração em mA, ns e V — é a prova de
+que o que está no chip é o que você pediu.
+
+Os valores que vêm no `main.cpp` são os de reset do chip. Gate drive e OCP
+**não estão dimensionados**; ver o passo 5 do procedimento abaixo.
 
 ---
 
@@ -147,9 +169,10 @@ linhas `build_dir` / `libdeps_dir` comentadas no fim do `platformio.ini`.
 3. Solde MOSFETs e shunts. Ponha `PLACA_SEM_ESTAGIO_DE_POTENCIA` em `0`.
 4. Aperte `s`. `0x00` e `0x01` têm que vir limpos. Se só os bits `VGS_Lx`
    acusarem, olhe os shunts: o monitor de low-side se referencia em SPx.
-5. **Só depois disso** dimensione `gate_drive_hs`, `gate_drive_ls` e
-   `ocp_control` contra o SLVSDY6 e a carga de gate dos seus MOSFETs, e
-   comece o PWM.
+5. **Só depois disso** dimensione o gate drive (`idrivep_*`, `idriven_*`,
+   `tdrive`) e a proteção (`tempo_morto`, `nivel_vds`, `deglitch_ocp`) em
+   `configurarDriver()` contra o SLVSDY6 e a carga de gate dos seus MOSFETs,
+   e comece o PWM.
 
 ---
 
