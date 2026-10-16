@@ -24,6 +24,7 @@ static void ajuda()
     Dbg.println(F("  z  dorme (ENABLE = 0)"));
     Dbg.println(F("  t  cronometra 100 transacoes"));
     Dbg.println(F("  a  auto-zero dos CSAs"));
+    Dbg.println(F("  r  30 ciclos dormir/acordar"));
     Dbg.println(F("  ?  esta ajuda"));
     Dbg.println(F("----------------------------------------"));
 }
@@ -66,6 +67,26 @@ static void autoZero()
     Dbg.println(F("  esperado ~1,65 V (VREF/2). Zero: ver README."));
 }
 
+// A falha de conferência era intermitente: só uma série longa prova a
+// correção do tWAKE. Termina com o driver acordado e configurado.
+static void testeCiclos()
+{
+    const uint16_t N = 30;
+    uint16_t falhas = 0;
+
+    Dbg.println(F("\n=== CICLOS DORMIR/ACORDAR ==="));
+    for (uint16_t i = 1; i <= N; i++) {
+        drv.dormir();
+        delay(5);
+        if (!drv.acordar(cfg)) {
+            falhas++;
+            Dbg.print(F("  ciclo ")); Dbg.print(i); Dbg.println(F(": FALHOU"));
+        }
+    }
+    Dbg.print(F("  ciclos: ")); Dbg.print(N);
+    Dbg.print(F("  falhas: ")); Dbg.println(falhas);
+}
+
 static void acordarEConfigurar()
 {
     Dbg.println(F("\n=== ACORDAR E CONFIGURAR ==="));
@@ -80,6 +101,9 @@ static void acordarEConfigurar()
 void setup()
 {
     pinMode(PINO_LED_STATUS, OUTPUT);
+    // O analogRead do stm32duino devolve 10 bits por padrão; a conversão em
+    // autoZero() usa 4095. Era isso que dava 0,41 V em vez de 1,65 V.
+    analogReadResolution(12);
 
     Dbg.begin(CONSOLE_BAUD);
     delay(50);
@@ -132,6 +156,7 @@ void loop()
         case 'z': drv.dormir();      Dbg.println(F("\n  dormindo.")); break;
         case 't': cronometrar(); break;
         case 'a': autoZero(); break;
+        case 'r': testeCiclos(); break;
         case '?': ajuda(); break;
         default:  break;
     }

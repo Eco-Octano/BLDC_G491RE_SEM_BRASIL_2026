@@ -88,7 +88,9 @@ bool DRV8353::aplicar(const DrvConfig& c)
 bool DRV8353::acordar(const DrvConfig& c)
 {
     digitalWrite(DRV_PINO_ENABLE, HIGH);
-    delay(1);                      // tWAKE <= 1 ms
+    // tWAKE <= 1 ms. delay(1) pode esperar quase nada se cair logo antes
+    // do tique do SysTick, e a primeira escrita se perde.
+    delayMicroseconds(1500);
     acordado_ = true;
     return aplicar(c);
 }

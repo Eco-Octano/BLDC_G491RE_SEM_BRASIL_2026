@@ -42,7 +42,7 @@ public:
     bool     aplicar(const DrvConfig& c);
 
     // Acorda, espera tWAKE e escreve a configuração conferindo cada
-    // registrador. Leva ~2,6 ms. Retorna false se a conferência falhar —
+    // registrador. Leva ~3,1 ms. Retorna false se a conferência falhar —
     // e nesse caso o PWM não pode ser ligado, porque o 0x02 ainda está em
     // reset e o modo de PWM pode divergir do que o timer vai gerar.
     bool acordar(const DrvConfig& c);

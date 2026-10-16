@@ -130,6 +130,7 @@ linhas `build_dir` / `libdeps_dir` comentadas no fim do `platformio.ini`.
 | `z` | dorme (ENABLE = 0) |
 | `t` | cronometra 100 transações |
 | `a` | auto-zero dos CSAs |
+| `r` | 30 ciclos dormir → acordar, conta falhas de conferência |
 
 ---
 
@@ -167,8 +168,8 @@ O sono **apaga todos os registradores**, então todo despertar reconfigura.
 `DRV8353::acordar()` faz a sequência completa:
 
 ```
-ENABLE alto → espera tWAKE (1 ms) → escreve 6 registradores
-            → confere o que escreveu  ≈ 2,6 ms no total
+ENABLE alto → espera tWAKE (1,5 ms) → escreve 6 registradores
+            → confere o que escreveu  ≈ 3,1 ms no total
 ```
 
 Duas regras que não podem ser quebradas:
