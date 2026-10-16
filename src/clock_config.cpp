@@ -1,35 +1,22 @@
-/*
-  clock_config.cpp - configuracao de clock do STM32G491RE
-  [G491] Correcao obrigatoria. Nao remova.
-
-  A variante GENERICA do stm32duino nao entrega os 170 MHz declarados no
-  board. O SysTick acaba configurado a partir de um SystemCoreClock que nao
-  corresponde ao clock real, e o delay() ou trava ou fica muito mais lento
-  que o pedido.
-
-  Sintoma: um blink com delay() deixa o pino parado, enquanto o MESMO blink
-  com um laco de contagem no lugar do delay funciona.
-
-  O SystemClock_Config() do core e' WEAK, entao esta definicao tem
-  precedencia. Nada precisa ser chamado.
-
-  IMPORTA MUITO PARA SPI: a frequencia do SCLK e' derivada do APB. Com o
-  clock errado, o SPI roda numa frequencia diferente da que voce configurou
-  em SPISettings - e voce vai medir isso no osciloscopio sem entender.
-
-  CADEIA:
-    HSI16 -> PLLM /4 -> 4 MHz -> PLLN x85 -> 340 MHz -> PLLR /2 -> 170 MHz
-    AHB /1, APB1 /1, APB2 /1
-
-  Usa HSI (interno, ~1%), nao HSE - o HSE da Nucleo depende de solder bridges.
-*/
+// Clock do STM32G491RE. Sobrepõe o SystemClock_Config() fraco do core.
+// Corrige duas coisas que a variante genérica do stm32duino não entrega:
+//
+//   1. Os 170 MHz declarados pelo board. Sem isso o SystemCoreClock
+//      diverge do clock real e o delay() trava ou fica lento.
+//   2. O clock de kernel do ADC. No G4 o ADC tem multiplexador próprio,
+//      cujo estado de reset é "nenhuma fonte". Nesse estado toda conversão
+//      devolve zero, sem erro e sem travar.
+//
+// Cadeia: HSI16 -> /4 -> x85 -> /2 = 170 MHz, AHB/APB1/APB2 sem divisão.
+// Usa HSI e não HSE porque o HSE da Nucleo depende de solder bridges.
 
 #include <Arduino.h>
 
 extern "C" void SystemClock_Config(void)
 {
-    RCC_OscInitTypeDef osc = {};
-    RCC_ClkInitTypeDef clk = {};
+    RCC_OscInitTypeDef       osc = {};
+    RCC_ClkInitTypeDef       clk = {};
+    RCC_PeriphCLKInitTypeDef per = {};
 
     __HAL_RCC_PWR_CLK_ENABLE();
     HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
@@ -53,4 +40,9 @@ extern "C" void SystemClock_Config(void)
     clk.APB1CLKDivider = RCC_HCLK_DIV1;
     clk.APB2CLKDivider = RCC_HCLK_DIV1;
     if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_4) != HAL_OK) { while (1) { } }
+
+    per.PeriphClockSelection = RCC_PERIPHCLK_ADC12 | RCC_PERIPHCLK_ADC345;
+    per.Adc12ClockSelection  = RCC_ADC12CLKSOURCE_SYSCLK;
+    per.Adc345ClockSelection = RCC_ADC345CLKSOURCE_SYSCLK;
+    if (HAL_RCCEx_PeriphCLKConfig(&per) != HAL_OK) { while (1) { } }
 }
