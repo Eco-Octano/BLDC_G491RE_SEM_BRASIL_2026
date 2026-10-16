@@ -1,7 +1,7 @@
 # ESC Eco Octano — DRV8353RS sobre NUCLEO-G491RE
 
 Firmware de bring-up e biblioteca de driver para o ESC do veículo elétrico
-da **Eco Octano UFPR**. Alvo: NUCLEO-G491RE + placa adaptadora *Artemis* +
+do **Eco Octano UFPR**. Alvo: NUCLEO-G491RE + placa adaptadora *Artemis* +
 placa de potência *Ouroboros* (DRV8353RS).
 
 Este repositório cobre a camada de driver e a validação de bancada. O
@@ -62,12 +62,16 @@ velocidade que o projeto não precisa.
 include/
   board_pins.h      pinagem verificada + errata
 lib/DRV8353/
-  DRV8353.h         API do driver e opções de configuração (enums)
+  DRV8353.h         API do driver
   DRV8353_regs.h    mapa de registradores e bits
-  DRV8353.cpp       transporte, configuração, falha, auto-zero
+  DRV8353.cpp       SPI, configuração, falhas e explicação em texto
 src/
   clock_config.cpp  170 MHz + clock de kernel do ADC
-  main.cpp          aplicação de bring-up; configurarDriver() fica aqui
+  main.cpp          em branco: a aplicação é escrita aqui
+testes/
+  08_bancada_drv8353.cpp          console de bancada da biblioteca
+docs/
+  drv8353-biblioteca.md           guia da biblioteca
 boards/
   nucleo_g491re_arduino.json      board customizado (ver Armadilhas)
 tools/
@@ -119,52 +123,56 @@ No Windows há ainda uma sexta: o GNU `ld` não lida com acento no caminho do
 projeto e o build falha com `cannot open map file`. Use um caminho ASCII ou as
 linhas `build_dir` / `libdeps_dir` comentadas no fim do `platformio.ini`.
 
-### Comandos do console
+### Console de bancada
+
+O `src/main.cpp` fica em branco para a aplicação. Para testar o driver, copie
+`testes/08_bancada_drv8353.cpp` para `src/main.cpp` e grave:
 
 | tecla | ação |
 |---|---|
-| `d` | dump dos 8 registradores |
-| `g` | configuração lida do chip, em unidades físicas (mA, ns, V) |
-| `s` | status de falha decodificado |
-| `c` | limpa falha por SPI (CLR_FLT) |
-| `p` | pulso `tRST` no ENABLE — limpa falha **sem** perder configuração |
-| `w` | acorda e configura |
+| `d` | lê os 8 registradores e explica cada campo e o modo resultante |
+| `s` | lê as falhas e diz a causa provável de cada uma |
+| `c` | reseta falhas por SPI (`CLR_FLT`) |
+| `p` | reseta falhas por pulso `tRST` no ENABLE — **sem** perder configuração |
+| `w` | acorda, escreve e confere a configuração |
 | `z` | dorme (ENABLE = 0) |
-| `t` | cronometra 100 transações |
-| `a` | auto-zero dos CSAs |
+| `e` | planar pelo pino ENABLE (dorme) |
+| `k` | planar pelo registrador (bit `COAST`) |
+| `v` | retoma do planar |
 | `r` | 30 ciclos dormir → acordar, conta falhas de conferência |
+| `a` | auto-zero dos CSAs |
+| `t` | cronometra 100 leituras SPI |
 
 ### Configurar o driver
 
-Toda a configuração do DRV8353RS fica em `configurarDriver()`, no topo do
-`main.cpp`, com um campo por linha e as opções válidas no comentário:
+A configuração é passada registrador a registrador, em hex, como nas tabelas
+do datasheet. A biblioteca guarda o valor, escreve, relê para conferir e o
+reescreve a cada despertar:
 
 ```cpp
-c.idrivep_hs  = IdriveP::mA300;      // corrente de pico que liga o MOSFET
-c.tempo_morto = TempoMorto::ns200;
-c.ganho_csa   = GanhoCsa::x40;
+drv.escreverRegistrador(DRV_REG_GATE_DRIVE_HS, 0x344);   // IDRIVEP 300 mA, IDRIVEN 600 mA
 ```
 
-Os nomes das opções carregam a unidade, então não há bits para montar: a
-biblioteca traduz para os registradores e confere cada um depois de escrever.
-Se a conferência falhar, `w` mostra quais registradores divergiram. Depois de
-gravar, `g` lê o chip e mostra a configuração em mA, ns e V — é a prova de
-que o que está no chip é o que você pediu.
+Para saber o que um valor significa antes de escrevê-lo,
+`DRV8353::explicarRegistrador(Serial, DRV_REG_GATE_DRIVE_HS, 0x344)` imprime
+cada campo em mA, ns e V. `mostrarRegistradores()` faz o mesmo com o que está
+no chip e aponta qualquer registrador diferente do configurado.
 
-Os valores que vêm no `main.cpp` são os de reset do chip. Gate drive e OCP
-**não estão dimensionados**; ver o passo 5 do procedimento abaixo.
+Sem nenhum valor passado vale o reset do chip, em que gate drive e OCP **não
+estão dimensionados**; ver o passo 5 do procedimento abaixo.
 
-Guia completo da biblioteca, com todos os campos, as funções, as regras de
-segurança e o roteiro para reaproveitar a `firmware_foc/` num projeto novo:
-[docs/drv8353-biblioteca.md](docs/drv8353-biblioteca.md).
+Guia completo da biblioteca, com as funções, o significado de cada campo, as
+regras de segurança e o roteiro para reaproveitar a `firmware_foc/` num
+projeto novo: [docs/drv8353-biblioteca.md](docs/drv8353-biblioteca.md).
 
 ---
 
 ## Procedimento de bring-up
 
-1. **Antes de soldar o estágio de potência**, mantenha
-   `PLACA_SEM_ESTAGIO_DE_POTENCIA` em `1` no `main.cpp`. Sem carga de gate o
-   driver declara **GDF corretamente e sem parar** — não é defeito.
+1. Use o console de bancada (`testes/08_bancada_drv8353.cpp` copiado para
+   `src/main.cpp`). **Antes de soldar o estágio de potência**, mantenha
+   `PLACA_SEM_ESTAGIO_DE_POTENCIA` em `1` nele. Sem carga de gate o driver
+   declara **GDF corretamente e sem parar** — não é defeito.
 2. Aperte `d`. Os registradores de configuração (`0x02` a `0x07`) têm que
    bater com os valores de reset. É o gabarito do barramento nos dois
    sentidos. Note que `0x04` reseta em `0x7FF`: é o único registrador em que
@@ -173,10 +181,9 @@ segurança e o roteiro para reaproveitar a `firmware_foc/` num projeto novo:
 3. Solde MOSFETs e shunts. Ponha `PLACA_SEM_ESTAGIO_DE_POTENCIA` em `0`.
 4. Aperte `s`. `0x00` e `0x01` têm que vir limpos. Se só os bits `VGS_Lx`
    acusarem, olhe os shunts: o monitor de low-side se referencia em SPx.
-5. **Só depois disso** dimensione o gate drive (`idrivep_*`, `idriven_*`,
-   `tdrive`) e a proteção (`tempo_morto`, `nivel_vds`, `deglitch_ocp`) em
-   `configurarDriver()` contra o SLVSDY6 e a carga de gate dos seus MOSFETs,
-   e comece o PWM.
+5. **Só depois disso** dimensione os valores de `0x03`, `0x04` (gate drive) e
+   `0x05` (tempo morto e proteção) contra o SLVSDY6 e a carga de gate dos seus
+   MOSFETs, passe-os com `escreverRegistrador()` e comece o PWM.
 
 ---
 
@@ -190,6 +197,11 @@ driver durante a inércia**:
 |---|---|---|
 | acordado | 10,4 mA | 500 mW |
 | dormindo | 20 µA | 1 mW |
+
+Na biblioteca isso é `drv.planar()`, que por padrão baixa o ENABLE. A
+alternativa `drv.planar(ModoPlanar::RegistradorCoast)` deixa o chip acordado
+com a ponte em alta impedância: gasta os 10,4 mA, mas mantém a configuração e
+volta em ~0,3 ms. `drv.retomar()` desfaz qualquer um dos dois.
 
 O sono **apaga todos os registradores**, então todo despertar reconfigura.
 `DRV8353::acordar()` faz a sequência completa:

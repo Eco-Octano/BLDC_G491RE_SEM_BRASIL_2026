@@ -51,9 +51,14 @@ PA2, que aqui é o `LSCS_A`.
 - Identificadores em português seguindo o que já existe (`acordar`,
   `dormir`, `escreverEConferir`); pinos com prefixo `DRV_PINO_` ou `PINO_`.
 - Código completo e pronto para colar, não trechos para o usuário montar.
-  O usuário configura parâmetros no `main.cpp`; o resto fica em bibliotecas
-  em `lib/`. O driver do DRV8353RS é `lib/DRV8353`; pinos ficam no
-  `include/board_pins.h` e entram pelo construtor.
+- **O `src/main.cpp` é do usuário e fica em branco** até ele escrevê-lo. Não
+  preencher nem reescrever sem pedido explícito; código de teste vai para
+  `testes/` (o console de bancada é `testes/08_bancada_drv8353.cpp`).
+- O resto fica em bibliotecas em `lib/`. O driver do DRV8353RS é
+  `lib/DRV8353`, orientado a registradores: o usuário passa o valor em hex
+  (`escreverRegistrador`) e a biblioteca guarda, confere e explica em texto.
+  O usuário rejeitou a versão com struct de configuração e enums. Pinos
+  ficam no `include/board_pins.h` e entram pelo construtor.
 - Uma mudança por vez e um teste por mudança. Não reorganizar arquivos que
   não fazem parte do pedido.
 
@@ -74,18 +79,20 @@ PA2, que aqui é o `LSCS_A`.
 
 ## Pendente / não validado
 
-- Biblioteca `lib/DRV8353` (2026-10-16): mesma lógica validada, agora com a
-  configuração por enums em `configurarDriver()` no `main.cpp`. Falta conferir
-  em bancada que `d` continua batendo com o reset e que `r` dá zero falhas.
+- Biblioteca `lib/DRV8353` reescrita em 2026-10-16 (acordar, passar e
+  explicar registradores, falhas com causa, reset de falha, modo planar por
+  ENABLE ou `COAST`). Transporte SPI e despertar são os validados; o resto
+  falta testar com o console de bancada, em especial `e`/`k`/`v` (planar) e
+  `c`/`p` (reset de falha).
 - Auto-zero (`a`) lia ~0,41 V em vez de 1,65 V. Causa provável: `analogRead`
   em 10 bits convertido com /4095 (512 contagens = 0,413 V). Corrigido com
   `analogReadResolution(12)`; falta confirmar em bancada.
-- `PLACA_SEM_ESTAGIO_DE_POTENCIA` em `main.cpp` está em `1`. Colocar em `0`
-  só depois de soldar o estágio de potência.
-- Gate drive (`idrivep_*`, `idriven_*`, `tdrive`) e OCP (`tempo_morto`,
-  `nivel_vds`, `deglitch_ocp`) estão nos valores de reset em
-  `configurarDriver()`, não dimensionados. **Não ligar PWM** antes de
-  dimensioná-los contra o SLVSDY6 e a carga de gate dos MOSFETs.
+- `PLACA_SEM_ESTAGIO_DE_POTENCIA` no console de bancada está em `1`. Colocar
+  em `0` só depois de soldar o estágio de potência.
+- Gate drive (`0x03`, `0x04`) e OCP (`0x05`) estão nos valores de reset, não
+  dimensionados. **Não ligar PWM** antes de dimensioná-los contra o SLVSDY6 e
+  a carga de gate dos MOSFETs (CSD18535KCS, segundo o
+  `firmware_foc/drv8353_bringup.cpp`, que traz valores não revalidados).
 - O build com a toolchain ARM real só foi verificado na bancada do usuário;
   mudanças em HAL e clocks exigem um `pio run` real, não só checagem
   de sintaxe.
@@ -112,7 +119,8 @@ M8 aplicação → M9 segurança → M10 experimento inline × low-side.
 - Datasheet DRV835x: SLVSDY6 (TI), §8.5.1.1 para o quadro SPI.
 - `README.md` tem a errata completa, o procedimento de bring-up e a tabela
   de armadilhas do PlatformIO.
-- `docs/drv8353-biblioteca.md` documenta a biblioteca `lib/DRV8353` (campos,
-  funções, regras de segurança e reaproveitamento da `firmware_foc/`). É um
+- `docs/drv8353-biblioteca.md` documenta a biblioteca `lib/DRV8353` (funções,
+  campos de cada registrador, regras de segurança e reaproveitamento da
+  `firmware_foc/`). É um
   documento versionado (`versao` no frontmatter e histórico de revisões):
   ao mudar a biblioteca, atualize o guia e incremente a versão.

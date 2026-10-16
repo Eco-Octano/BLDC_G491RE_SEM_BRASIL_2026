@@ -1,15 +1,20 @@
-// Biblioteca do DRV8353RS (gate driver trifásico da TI, SLVSDY6).
+// Biblioteca do DRV8353RS (gate driver trifásico da TI, SLVSDY6A).
 //
-//   DRV8353   drv(pinos);
-//   DrvConfig cfg;                    // nasce com os valores de reset do chip
-//   cfg.ganho_csa = GanhoCsa::x40;    // muda só o que precisar
-//   drv.begin();
-//   drv.acordar(cfg);                 // escreve e confere os 6 registradores
+//   DRV8353 drv({ DRV_PINO_SCLK, DRV_PINO_NSCS, DRV_PINO_SDI,
+//                 DRV_PINO_SDO,  DRV_PINO_ENABLE, DRV_PINO_NFAULT });
 //
-// Transporte por bit-bang (ERRATA 001 da Ouroboros). Nenhuma função daqui
-// pode ser chamada de dentro da malha de controle: uma transação custa
-// ~130 us e o período de uma malha a 20 kHz é 50 us. O caminho rápido de
-// falha é o nFAULT, que é um GPIO e pode ser EXTI.
+//   drv.iniciar();                                          // driver dormindo
+//   drv.escreverRegistrador(DRV_REG_GATE_DRIVE_HS, 0x344);  // guarda o valor
+//   drv.acordar();                                          // escreve e confere
+//   drv.mostrarRegistradores(Serial);                       // lê e explica
+//
+// Os valores passados ficam guardados na biblioteca: o sono apaga o chip,
+// e todo acordar() os reescreve e confere. Sem nenhum valor passado, vale
+// o reset do chip.
+//
+// Transporte por bit-bang (ERRATA 001 da Ouroboros). Uma transação custa
+// ~130 us: nenhuma função daqui pode rodar dentro da malha de 20 kHz. O
+// caminho rápido de falha é o nFAULT, como GPIO ou EXTI.
 
 #pragma once
 #include <Arduino.h>
@@ -24,154 +29,107 @@ struct DrvPinos {
     uint32_t nfault;
 };
 
-// Opções de cada campo, com os códigos do SLVSDY6 (seção 8.6.2). O nome
-// diz o valor físico: IdriveP::mA300 é 300 mA de pico.
-
-enum class ModoPwm : uint16_t { x6 = 0, x3 = 1, x1 = 2, Independente = 3 };
-
-// Corrente de pico que carrega o gate (liga o MOSFET).
-enum class IdriveP : uint16_t {
-    mA50  = 0x1, mA100 = 0x2, mA150 = 0x3, mA300 = 0x4, mA350 = 0x5,
-    mA400 = 0x6, mA450 = 0x7, mA550 = 0x8, mA600 = 0x9, mA650 = 0xA,
-    mA700 = 0xB, mA850 = 0xC, mA900 = 0xD, mA950 = 0xE, mA1000 = 0xF
+// Como o modo planar desliga a ponte. Os dois deixam os MOSFETs abertos.
+enum class ModoPlanar : uint8_t {
+    PinoEnable,        // ENABLE em 0: o chip dorme (~20 uA) e apaga os
+                       // registradores; retomar() reescreve tudo (~3 ms)
+    RegistradorCoast   // bit COAST: chip acordado (~10 mA), configuração
+                       // mantida; retomar() só limpa o bit (~0,3 ms)
 };
 
-// Corrente de pico que descarrega o gate (desliga o MOSFET).
-enum class IdriveN : uint16_t {
-    mA100  = 0x1, mA200  = 0x2, mA300  = 0x3, mA600  = 0x4, mA700  = 0x5,
-    mA800  = 0x6, mA900  = 0x7, mA1100 = 0x8, mA1200 = 0x9, mA1300 = 0xA,
-    mA1400 = 0xB, mA1700 = 0xC, mA1800 = 0xD, mA1900 = 0xE, mA2000 = 0xF
-};
-
-// Quanto tempo a corrente de pico fica aplicada no gate.
-enum class TDrive : uint16_t { ns500 = 0, ns1000 = 1, ns2000 = 2, ns4000 = 3 };
-
-enum class TempoMorto : uint16_t { ns50 = 0, ns100 = 1, ns200 = 2, ns400 = 3 };
-
-enum class ModoOcp : uint16_t {
-    Trava     = 0,   // desliga e espera CLR_FLT ou pulso tRST
-    Retry     = 1,   // desliga e religa sozinho após o tempo de retry
-    SoReporta = 2,   // só sinaliza no nFAULT, não desliga nada
-    Desligado = 3    // nem sinaliza
-};
-
-enum class DeglitchOcp : uint16_t { us1 = 0, us2 = 1, us4 = 2, us8 = 3 };
-
-enum class TempoRetry : uint16_t { ms8 = 0, us50 = 1 };
-
-// Limiar de VDS do MOSFET conduzindo que dispara a sobrecorrente.
-enum class NivelVds : uint16_t {
-    V0_06 = 0x0, V0_07 = 0x1, V0_08 = 0x2, V0_09 = 0x3,
-    V0_10 = 0x4, V0_20 = 0x5, V0_30 = 0x6, V0_40 = 0x7,
-    V0_50 = 0x8, V0_60 = 0x9, V0_70 = 0xA, V0_80 = 0xB,
-    V0_90 = 0xC, V1_00 = 0xD, V1_50 = 0xE, V2_00 = 0xF
-};
-
-enum class GanhoCsa : uint16_t { x5 = 0, x10 = 1, x20 = 2, x40 = 3 };
-
-// Limiar da sobrecorrente medida no shunt (tensão no shunt, antes do ganho).
-enum class NivelSen : uint16_t { V0_25 = 0, V0_50 = 1, V0_75 = 2, V1_00 = 3 };
-
-// Valores padrão = reset do chip. Gate drive e OCP não estão
-// dimensionados: dimensione contra o SLVSDY6 e a carga de gate dos
-// MOSFETs antes de ligar potência.
-struct DrvConfig {
-    // 0x02 DRIVER_CONTROL
-    ModoPwm modo_pwm                = ModoPwm::x6;
-    bool    pwm1x_assincrono        = false;  // só no modo x1
-    bool    ocp_desliga_tres_bracos = false;  // false: só o braço em falha
-    bool    otw_no_nfault           = false;
-    // Máscaras de falha. Só em bancada: na placa sem estágio de potência
-    // o GDF é declarado corretamente e sem parar. Em veículo, false.
-    bool    mascarar_gdf            = false;
-    bool    mascarar_gduv           = false;
-
-    // 0x03 GATE_DRIVE_HS
-    IdriveP idrivep_hs = IdriveP::mA1000;
-    IdriveN idriven_hs = IdriveN::mA2000;
-
-    // 0x04 GATE_DRIVE_LS
-    IdriveP idrivep_ls = IdriveP::mA1000;
-    IdriveN idriven_ls = IdriveN::mA2000;
-    TDrive  tdrive     = TDrive::ns4000;
-    bool    ocp_ciclo_a_ciclo = true;         // CBC; só vale com ModoOcp::Retry
-
-    // 0x05 OCP_CONTROL
-    TempoMorto  tempo_morto  = TempoMorto::ns100;
-    ModoOcp     modo_ocp     = ModoOcp::Retry;
-    NivelVds    nivel_vds    = NivelVds::V1_00;
-    DeglitchOcp deglitch_ocp = DeglitchOcp::us4;
-    TempoRetry  tempo_retry  = TempoRetry::ms8;
-
-    // 0x06 CSA_CONTROL
-    GanhoCsa ganho_csa         = GanhoCsa::x20;
-    bool     csa_bidirecional  = true;    // saída repousa em VREF/2
-    bool     csa_entrada_shx   = false;   // mede pelo RDS(on) do low-side, sem shunt
-    bool     vds_ls_ref_snx    = false;   // VDS do low-side medido até SNx, não SPx
-    NivelSen nivel_sen         = NivelSen::V1_00;
-    bool     sen_ocp_desligado = false;
-
-    // 0x07 DRIVER_CONFIG
-    bool     autocalibracao    = false;   // calibração dos CSAs pelo próprio chip
+// Os dois métodos limpam falhas travadas sem perder a configuração.
+enum class MetodoReset : uint8_t {
+    Spi,               // bit CLR_FLT no 0x02
+    PulsoEnable        // pulso tRST de 20 us no ENABLE; não depende do SPI
 };
 
 struct DrvFalhas {
-    uint16_t status1 = 0;
-    uint16_t status2 = 0;
-    bool     alguma  = false;
+    bool     valida  = false;   // false: driver dormindo, nada foi lido
+    uint16_t status1 = 0;       // 0x00 cru
+    uint16_t status2 = 0;       // 0x01 cru
+    bool     alguma  = false;   // bit FAULT do 0x00
+
+    bool sobrecorrente_vds    = false;   // VDS_OCP
+    bool falha_gate           = false;   // GDF
+    bool subtensao_vm         = false;   // UVLO
+    bool desligamento_termico = false;   // OTSD
+    bool aviso_temperatura    = false;   // OTW
+    bool subtensao_gate       = false;   // GDUV
+    bool sobrecorrente_shunt  = false;   // SA_OC, SB_OC ou SC_OC
 };
 
 class DRV8353 {
 public:
-    explicit DRV8353(const DrvPinos& pinos) : p_(pinos) {}
+    explicit DRV8353(const DrvPinos& pinos);
 
-    bool begin();
+    // Pinos em estado seguro (nSCS alto, ENABLE baixo): driver dormindo.
+    // Chame antes de qualquer outra função.
+    void iniciar();
 
-    uint16_t ler(uint8_t reg);
-    void     escrever(uint8_t reg, uint16_t valor);
-    bool     escreverEConferir(uint8_t reg, uint16_t valor);
-    bool     aplicar(const DrvConfig& c);
-
-    // Acorda, espera tWAKE e escreve a configuração conferindo cada
-    // registrador. Leva ~3,1 ms. Retorna false se a conferência falhar —
-    // e nesse caso o PWM não pode ser ligado, porque o 0x02 ainda está em
-    // reset e o modo de PWM pode divergir do que o timer vai gerar.
-    bool acordar(const DrvConfig& c);
-
-    // Depois de um aplicar() que falhou: bit n ligado = registrador 0x0n
-    // não ficou com o valor escrito.
-    uint8_t registradoresDivergentes() const { return divergentes_; }
-
-    // Desligue o PWM antes. O sono leva o chip a 20 uA e apaga os
-    // registradores, por isso todo despertar reconfigura.
+    // ---- acordar e dormir --------------------------------------------
+    // Sobe o ENABLE, espera o tWAKE e escreve e confere os seis
+    // registradores guardados. Leva ~3,1 ms. Retorna true só se todos
+    // conferiram e o nFAULT está alto; senão, não ligue o PWM.
+    bool acordar();
+    // Desligue o PWM antes. O sono apaga os registradores do chip.
     void dormir();
     bool acordado() const { return acordado_; }
 
-    // Pulso tRST: limpa falha travada sem dormir e sem perder a
-    // configuração. Acima de 1 ms o chip dorme.
-    void pulsoReset();
+    // ---- passar valores ----------------------------------------------
+    // Guarda o valor de um registrador de configuração (0x02 a 0x07) e,
+    // com o driver acordado, escreve e confere. Dormindo, só guarda: vale
+    // no próximo acordar(). Ajustes que o chip faria sozinho já vêm no
+    // valor guardado: LOCK fica destravado, CSA_FET liga LS_REF, CLR_FLT
+    // e CSA_CAL não são guardados e os bits reservados do 0x07 vão a 0.
+    bool     escreverRegistrador(uint8_t reg, uint16_t valor);
+    uint16_t valorConfigurado(uint8_t reg) const;
+    // Bit n ligado = o registrador 0x0n não conferiu na última escrita.
+    uint8_t  registradoresDivergentes() const { return divergentes_; }
 
+    // ---- ler e explicar ----------------------------------------------
+    uint16_t lerRegistrador(uint8_t reg);
+    // Lê os oito registradores e explica cada campo e o modo resultante.
+    // Dormindo, explica os valores guardados.
+    void mostrarRegistradores(Print& saida);
+    // Explica um valor sem tocar no chip: útil para conferir um hex antes
+    // de escrevê-lo.
+    static void explicarRegistrador(Print& saida, uint8_t reg, uint16_t valor);
+
+    // ---- falhas ------------------------------------------------------
     bool      emFalha() const { return digitalRead(p_.nfault) == LOW; }
     DrvFalhas lerFalhas();
-    void      limparFalha();
-    void      imprimirFalhas(Print& saida, const DrvFalhas& f);
+    // Lê as falhas e diz o que cada uma significa e o que costuma causá-la.
+    void      mostrarFalhas(Print& saida);
+    // Retorna true se o nFAULT subiu. Se a causa persistir, ele cai de novo.
+    bool      resetarFalhas(MetodoReset metodo = MetodoReset::Spi);
 
-    void dump(Print& saida);
-    // Lê a configuração do chip e imprime em unidades físicas.
-    void imprimirConfig(Print& saida);
-    bool barramentoOk();
+    // ---- modo planar -------------------------------------------------
+    // Abre todos os MOSFETs. Com PinoEnable, desligue o PWM antes.
+    bool planar(ModoPlanar modo = ModoPlanar::PinoEnable);
+    // Desfaz o planar pelo mesmo caminho. Retorna true se o driver ficou
+    // pronto para o PWM; ligue o PWM só depois.
+    bool retomar();
+    bool planando() const { return planando_; }
 
-    // Curto-circuita as entradas dos CSAs para medir offset com corrente
-    // nula. Chamar com o motor parado.
-    void inicioAutoZero();
-    void fimAutoZero();
+    // ---- calibração dos CSAs -----------------------------------------
+    // Curto-circuita as entradas dos amplificadores para medir o offset
+    // com corrente nula. Motor parado; leia o ADC entre as duas chamadas.
+    bool iniciarAutoZero();
+    bool terminarAutoZero();
 
 private:
     uint16_t transferir(uint16_t quadro);
-    static uint16_t montar(const DrvConfig& c, uint8_t reg);
+    void     escrever(uint8_t reg, uint16_t valor);
+    bool     escreverEConferir(uint8_t reg, uint16_t valor);
+    bool     aplicarConfiguracao();
+    uint16_t valorEfetivo(uint8_t reg) const;
+    static uint16_t normalizar(uint8_t reg, uint16_t valor);
 
     static constexpr uint32_t ATRASO_US = 2;   // meia fase do SCLK
     const DrvPinos p_;
-    bool    acordado_    = false;
-    uint8_t divergentes_ = 0;
+    uint16_t   config_[DRV_NUM_REGS];
+    bool       acordado_    = false;
+    bool       planando_    = false;
+    ModoPlanar modo_planar_ = ModoPlanar::PinoEnable;
+    uint8_t    divergentes_ = 0;
 };
