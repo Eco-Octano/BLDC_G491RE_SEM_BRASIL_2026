@@ -112,3 +112,7 @@ M8 aplicação → M9 segurança → M10 experimento inline × low-side.
 - Datasheet DRV835x: SLVSDY6 (TI), §8.5.1.1 para o quadro SPI.
 - `README.md` tem a errata completa, o procedimento de bring-up e a tabela
   de armadilhas do PlatformIO.
+- `docs/drv8353-biblioteca.md` documenta a biblioteca `lib/DRV8353` (campos,
+  funções, regras de segurança e reaproveitamento da `firmware_foc/`). É um
+  documento versionado (`versao` no frontmatter e histórico de revisões):
+  ao mudar a biblioteca, atualize o guia e incremente a versão.

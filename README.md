@@ -154,6 +154,10 @@ que o que está no chip é o que você pediu.
 Os valores que vêm no `main.cpp` são os de reset do chip. Gate drive e OCP
 **não estão dimensionados**; ver o passo 5 do procedimento abaixo.
 
+Guia completo da biblioteca, com todos os campos, as funções, as regras de
+segurança e o roteiro para reaproveitar a `firmware_foc/` num projeto novo:
+[docs/drv8353-biblioteca.md](docs/drv8353-biblioteca.md).
+
 ---
 
 ## Procedimento de bring-up
