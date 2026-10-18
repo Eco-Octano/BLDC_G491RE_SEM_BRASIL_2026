@@ -47,6 +47,7 @@ void DRV8353::iniciar()
     digitalWrite(p_.enable, LOW);
     acordado_ = false;
     planando_ = false;
+    travado_  = false;
 }
 
 uint16_t DRV8353::lerRegistrador(uint8_t reg)
@@ -101,6 +102,8 @@ uint16_t DRV8353::valorEfetivo(uint8_t reg) const
     if (reg == DRV_REG_DRIVER_CONTROL && planando_
         && modo_planar_ == ModoPlanar::RegistradorCoast)
         v |= DRV_DC_COAST;
+    if (reg == DRV_REG_GATE_DRIVE_HS && travado_)
+        v = (uint16_t)((v & ~DRV_GD_LOCK_MASCARA) | (DRV_LOCK_TRAVADO << DRV_GD_LOCK_POS));
     return v;
 }
 
@@ -112,8 +115,10 @@ uint16_t DRV8353::valorConfigurado(uint8_t reg) const
 bool DRV8353::escreverRegistrador(uint8_t reg, uint16_t valor)
 {
     if (reg < DRV_REG_DRIVER_CONTROL || reg >= DRV_NUM_REGS) return false;
+    if (valor > DRV_MASCARA_DADO) return false;
     config_[reg] = normalizar(reg, valor);
     if (!acordado_) return true;
+    if (travado_)   return false;   // o chip ignoraria a escrita
 
     const bool ok = escreverEConferir(reg, valorEfetivo(reg));
     if (ok) divergentes_ &= (uint8_t)~(1u << reg);
@@ -150,6 +155,7 @@ bool DRV8353::acordar()
     delayMicroseconds(1500);
     acordado_ = true;
     planando_ = false;
+    travado_  = false;              // o sono destrava junto com o resto
 
     const bool conferiu = aplicarConfiguracao();
     // Uma falha surgida durante o despertar não gera borda nova para a
@@ -162,6 +168,24 @@ void DRV8353::dormir()
     digitalWrite(p_.enable, LOW);
     acordado_ = false;
     planando_ = false;
+    travado_  = false;
+}
+
+bool DRV8353::travarRegistradores()
+{
+    if (!acordado_) return false;
+    travado_ = true;
+    escrever(DRV_REG_GATE_DRIVE_HS, valorEfetivo(DRV_REG_GATE_DRIVE_HS));
+    const uint8_t lock = (lerRegistrador(DRV_REG_GATE_DRIVE_HS) >> DRV_GD_LOCK_POS) & 0x7;
+    travado_ = (lock == DRV_LOCK_TRAVADO);
+    return travado_;
+}
+
+bool DRV8353::destravarRegistradores()
+{
+    if (!acordado_) return false;
+    travado_ = false;
+    return escreverEConferir(DRV_REG_GATE_DRIVE_HS, valorEfetivo(DRV_REG_GATE_DRIVE_HS));
 }
 
 bool DRV8353::planar(ModoPlanar modo)
@@ -534,6 +558,7 @@ void DRV8353::mostrarRegistradores(Print& s)
 
     s.print(F("  ENABLE = 1   nFAULT = "));
     s.print(emFalha() ? F("0 (falha)") : F("1 (ok)"));
+    s.print(travado_ ? F("   TRAVADO") : F("   destravado"));
     s.print(F("   planando: "));
     if (!planando_)
         s.println(F("nao"));

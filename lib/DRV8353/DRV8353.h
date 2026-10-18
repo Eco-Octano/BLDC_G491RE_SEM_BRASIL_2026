@@ -78,7 +78,9 @@ public:
     // ---- passar valores ----------------------------------------------
     // Guarda o valor de um registrador de configuração (0x02 a 0x07) e,
     // com o driver acordado, escreve e confere. Dormindo, só guarda: vale
-    // no próximo acordar(). Ajustes que o chip faria sozinho já vêm no
+    // no próximo acordar(). Recusa valor acima de 0x7FF (o dado tem 11
+    // bits; um valor maior costuma ser o quadro com o endereço junto) e,
+    // com os registradores travados, guarda mas devolve false. Ajustes que o chip faria sozinho já vêm no
     // valor guardado: LOCK fica destravado, CSA_FET liga LS_REF, CLR_FLT
     // e CSA_CAL não são guardados e os bits reservados do 0x07 vão a 0.
     bool     escreverRegistrador(uint8_t reg, uint16_t valor);
@@ -111,6 +113,14 @@ public:
     bool retomar();
     bool planando() const { return planando_; }
 
+    // ---- trava dos registradores -------------------------------------
+    // LOCK = 110b no 0x03: o chip passa a ignorar escritas, exceto no
+    // próprio LOCK e nos bits CLR_FLT, BRAKE e COAST do 0x02 (reset de
+    // falha e planar continuam funcionando). O sono destrava.
+    bool travarRegistradores();
+    bool destravarRegistradores();
+    bool travado() const { return travado_; }
+
     // ---- calibração dos CSAs -----------------------------------------
     // Curto-circuita as entradas dos amplificadores para medir o offset
     // com corrente nula. Motor parado; leia o ADC entre as duas chamadas.
@@ -130,6 +140,7 @@ private:
     uint16_t   config_[DRV_NUM_REGS];
     bool       acordado_    = false;
     bool       planando_    = false;
+    bool       travado_     = false;
     ModoPlanar modo_planar_ = ModoPlanar::PinoEnable;
     uint8_t    divergentes_ = 0;
 };

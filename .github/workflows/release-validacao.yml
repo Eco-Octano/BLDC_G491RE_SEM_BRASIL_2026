@@ -1,0 +1,55 @@
+# Publica o firmware de validação como release do GitHub.
+# Dispara com uma tag "validacao-vX.Y": compila o ambiente "validacao",
+# grava a tag na versão mostrada no console e anexa .elf e .bin ao release.
+
+name: Release do firmware de validacao
+
+on:
+  push:
+    tags:
+      - "validacao-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Mesma versão do PlatformIO usada na bancada.
+      - name: Instalar PlatformIO
+        run: pip install platformio==6.2.0
+
+      # Os caminhos C:/pio/ do platformio.ini só existem no Windows; as
+      # variáveis de ambiente têm precedência sobre eles.
+      - name: Compilar o ambiente validacao
+        env:
+          PLATFORMIO_BUILD_DIR: ${{ github.workspace }}/.pio/build
+          PLATFORMIO_LIBDEPS_DIR: ${{ github.workspace }}/.pio/libdeps
+          PLATFORMIO_BUILD_FLAGS: '-DVERSAO_FIRMWARE=\"${{ github.ref_name }}\"'
+        run: pio run -e validacao
+
+      - name: Separar os arquivos do release
+        run: |
+          mkdir -p saida
+          cp .pio/build/validacao/firmware.elf "saida/eco-octano-${{ github.ref_name }}.elf"
+          cp .pio/build/validacao/firmware.bin "saida/eco-octano-${{ github.ref_name }}.bin"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: saida/*
+          generate_release_notes: true
+          body: |
+            Firmware de validação da placa (NUCLEO-G491RE + Artemis + Ouroboros).
+            No boot, o console (FTDI, 115200) mostra a versão e um menu:
+            1 bancada do driver, 2 halls, 3 offsets dos amplificadores, 4 PWM sem motor.
+            Para trocar de modo, aperte o reset da Nucleo.
+
+            Gravação: use o .elf (carrega o endereço). O .bin só serve se o
+            gravador receber o endereço 0x08000000 (ex.: STM32CubeProgrammer).

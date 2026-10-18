@@ -1,7 +1,7 @@
 ---
 data: 2026-10-16
-atualizado: 2026-10-16
-versao: 2.0
+atualizado: 2026-10-17
+versao: 2.1
 status: vigente
 tags:
   - doc/manual
@@ -93,7 +93,7 @@ A ordem é sempre a mesma: `iniciar()` → passar os valores → `acordar()` →
 | Acordar | `acordar()` | ENABLE alto, espera 1,5 ms, escreve e confere os seis registradores. `true` só se tudo conferiu **e** o nFAULT está alto. Cerca de 3,1 ms |
 | | `dormir()` | ENABLE baixo. Desligue o PWM antes |
 | | `acordado()` | Estado do ENABLE. Não prova que a configuração conferiu |
-| Passar valor | `escreverRegistrador(reg, valor)` | Guarda o valor. Acordado, escreve e confere (`true` se conferiu); dormindo, só guarda e vale no próximo `acordar()`. `false` para 0x00, 0x01 ou acima de 0x07 |
+| Passar valor | `escreverRegistrador(reg, valor)` | Guarda o valor. Acordado, escreve e confere (`true` se conferiu); dormindo, só guarda e vale no próximo `acordar()`. `false` para 0x00, 0x01, endereço acima de 0x07, valor acima de `0x7FF` (o dado tem 11 bits: um valor maior costuma ser o quadro com o endereço junto) ou registradores travados |
 | | `valorConfigurado(reg)` | O valor guardado, já com os ajustes da tabela abaixo |
 | | `registradoresDivergentes()` | Máscara: bit n ligado = o registrador 0x0n não conferiu |
 | Ler e explicar | `lerRegistrador(reg)` | 11 bits crus. Com o chip dormindo não há resposta |
@@ -106,6 +106,7 @@ A ordem é sempre a mesma: `iniciar()` → passar os valores → `acordar()` →
 | Planar | `planar(modo)` | Abre todos os MOSFETs |
 | | `retomar()` | Desfaz pelo mesmo caminho. `true` se o driver ficou pronto para o PWM |
 | | `planando()` | Estado do planar |
+| Travar | `travarRegistradores()`, `destravarRegistradores()`, `travado()` | LOCK = 110b: o chip ignora escritas, exceto `CLR_FLT`, `BRAKE` e `COAST` do 0x02, então reset de falha e planar por COAST continuam funcionando. O sono destrava |
 | CSAs | `iniciarAutoZero()`, `terminarAutoZero()` | Curto nas entradas dos amplificadores para medir o offset |
 
 ### Acordar e dormir
@@ -140,7 +141,7 @@ Ao guardar, a biblioteca ajusta o que o chip ignoraria ou mudaria sozinho. Sem i
 | Registrador | Ajuste | Por quê |
 |---|---|---|
 | 0x02 | `CLR_FLT` não é guardado | É um pulso: o chip zera o bit sozinho |
-| 0x03 | `LOCK` sempre em 011b | Travar faria o chip ignorar as escritas seguintes do despertar |
+| 0x03 | `LOCK` guardado em 011b | Travar no meio da configuração faria o chip ignorar as escritas seguintes. A trava é um passo à parte, `travarRegistradores()`, depois de configurar |
 | 0x06 | `CSA_CAL_A/B/C` não são guardados | O curto do auto-zero voltaria a cada despertar |
 | 0x06 | `CSA_FET = 1` liga também `LS_REF` | O chip faz isso sozinho |
 | 0x07 | Bits 10 a 1 zerados | São reservados |
@@ -472,6 +473,7 @@ O `testes/08_bancada_drv8353.cpp`, copiado para `src/main.cpp`, chama cada funç
 
 ## Pendências
 
+- [ ] Testar na placa a rotina de despertar do `main.cpp` (configurar, calibrar os amplificadores internos e externos, sair do COAST e travar) e ajustar a janela de offset com os valores medidos
 - [ ] Testar a biblioteca 2.0 com o console de bancada (`d`, `s`, `w`, `r`, `e`/`k`/`v`, `c`/`p`, `a`, `t`) e registrar os resultados
 - [ ] Escolher o modo planar definitivo medindo, na bancada, o consumo e o tempo de retomada dos dois
 - [ ] [PENDENTE: carga de gate (Qg) e Rds(on) do CSD18535KCS, a buscar no datasheet do componente, para dimensionar IDRIVE, TDRIVE e VDS_LVL; os valores de exemplo vieram do sketch antigo]
@@ -489,5 +491,6 @@ O `testes/08_bancada_drv8353.cpp`, copiado para `src/main.cpp`, chama cada funç
 
 | Versão | Data | Alteração |
 |---|---|---|
+| 2.1 | 2026-10-17 | Trava de registradores (`travarRegistradores`, `destravarRegistradores`, `travado`) e recusa de valor acima de `0x7FF` em `escreverRegistrador` |
 | 2.0 | 2026-10-16 | Biblioteca reescrita a pedido do usuário: configuração por valor de registrador em hex com explicação em texto (substitui a `DrvConfig` com enums da 1.0), falhas com causa provável, reset por SPI ou por pulso, modo planar por ENABLE ou por COAST, `acordar()` passa a conferir o nFAULT e o `main.cpp` fica em branco, com o console movido para `testes/` |
 | 1.0 | 2026-10-16 | Versão inicial: uso, configuração, funções, regras de segurança, calibração e roteiro de reaproveitamento da `firmware_foc/` com a biblioteca |

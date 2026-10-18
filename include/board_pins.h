@@ -26,6 +26,25 @@
 #define PINO_ILCS_B       PA7
 #define PINO_ILCS_C       PB13
 
+// Pinos abaixo vêm da tabela de projeto da Artemis
+// (DRV8353RS_REG_MAP_TABLE), ainda sem verificação com ponteira.
+// PWM 6x no TIM1: alto em CHx, baixo em CHxN.
+#define PINO_INHA         PA8    // TIM1_CH1
+#define PINO_INLA         PA11   // TIM1_CH1N
+#define PINO_INHB         PA9    // TIM1_CH2
+#define PINO_INLB         PA12   // TIM1_CH2N
+#define PINO_INHC         PA10   // TIM1_CH3
+#define PINO_INLC         PB1    // TIM1_CH3N
+
+// Halls filtrados no TIM3; a tabela pede pull-up externo de 5 a 10 k.
+#define PINO_HALL_A       PC6    // TIM3_CH1
+#define PINO_HALL_B       PC7    // TIM3_CH2
+#define PINO_HALL_C       PC8    // TIM3_CH3
+
+#define PINO_BEMF_A       PC2
+#define PINO_BEMF_B       PC3
+#define PINO_BEMF_C       PA1
+
 #define PINO_VBAT         PC5
 #define PINO_HSCS         PC4
 #define PINO_LED_STATUS   PA0

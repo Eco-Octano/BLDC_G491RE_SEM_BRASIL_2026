@@ -8,7 +8,13 @@ para qualquer sessão do Claude Code neste repositório.
 - **MCU:** STM32G491RE na NUCLEO-G491RE, 170 MHz, 112 KB de RAM contígua.
 - **Artemis:** adaptador que fica sobre a Nucleo.
 - **Ouroboros:** placa de potência com o DRV8353RS (RGZ-48), sem MCU.
-- **Motor:** BLDC com halls, tensão de barramento de 48 V.
+- **Motor:** BLDC com halls, tensão de barramento de 48 V. Modelo 43 do
+  catálogo 129H43T, **5 pares de polos** (informado pelo usuário em
+  2026-10-17). O `POLE_PAIRS = 88` do `firmware_foc/inline_bringup.cpp`
+  está errado. Catálogo Koford: 10 polos, ranhurado; halls a 120°,
+  alimentados em **+5 V**, saída em coletor aberto (dependem do pull-up para
+  3,3 V; já usados assim pelo usuário). Cabos: fase A azul, B branco, C marrom; +5 V
+  vermelho, terra preto; hall A amarelo, B laranja, C verde.
 - Há dois grupos de sensores de corrente: amplificadores externos *inline*
   (PC0/PA7/PB13) e CSAs internos do driver *low-side* (PA2/PA6/PB0). O
   objetivo final é comparar os dois.
@@ -38,7 +44,22 @@ PA2, que aqui é o `LSCS_A`.
   antes do `main()`.
 - **`src/clock_config.cpp` não é opcional:** configura os 170 MHz e o clock de
   kernel do ADC. Sem o segundo, `analogRead` devolve zero.
-- Caminho do projeto com acento quebra o linker no Windows.
+- Caminho do projeto com acento quebra o linker no Windows, e o caminho longo
+  somado às pastas da SimpleFOC passa de 260 caracteres. Por isso `build_dir`
+  e `libdeps_dir` apontam para `C:/pio/`. Não remover.
+- SimpleFOC 2.4.0 instalada (`lib_deps`, com `lib_archive = no`). Instalar
+  biblioteca pelo PlatformIO Home apaga os comentários do `platformio.ini`:
+  edite `lib_deps` à mão.
+- Dois ambientes: `ouroboros` (aplicação, `src/main.cpp`) e `validacao`
+  (`src/validacao/`, menu de modos de teste da placa). Cada um ignora os
+  arquivos do outro por `build_src_filter`. Teste de bancada novo entra como
+  modo do firmware de validação, não como cópia por cima do `main.cpp`.
+- Releases: tag `validacao-vX.Y` dispara `.github/workflows/release-validacao.yml`,
+  que compila no GitHub e anexa `.elf`/`.bin`. No CI, `PLATFORMIO_BUILD_DIR` e
+  `PLATFORMIO_LIBDEPS_DIR` sobrescrevem os caminhos `C:/pio/`. A plataforma
+  está fixa em `ststm32@19.6.0` para o release igualar a bancada.
+- Pinos de PWM (TIM1), halls (TIM3) e BEMF no `board_pins.h` vêm da tabela
+  de projeto da Artemis (2026-10-17), ainda sem verificação com ponteira.
 
 ## Convenções de código
 
@@ -74,6 +95,17 @@ PA2, que aqui é o `LSCS_A`.
 - Despertar: 300 ciclos dormir → acordar (`r`) sem nenhuma falha de
   conferência com `delayMicroseconds(1500)` no lugar do `delay(1)`
   (2026-10-16). O `FALHOU` intermitente era o tWAKE.
+- Offsets dos amplificadores em torno de 1,65 V com a rotina de
+  `despertarDriver()` (2026-10-17, relato do usuário sem os valores
+  individuais). O 0,41 V antigo era o `analogRead` em 10 bits convertido
+  com /4095; `analogReadResolution(12)` resolveu.
+- Halls (M3, `testes/09_halls.cpp`, 2026-10-17): **uma volta física da
+  roda = exatamente 30 trocas**, confirmando 5 pares de polos, sem estado
+  inválido nem pulo; reversão de sentido acompanhada. Sequência no sentido
+  positivo (ABC): 011 → 001 → 101 → 100 → 110 → 010. Os 11 estados
+  inválidos (000/111) de uma corrida anterior eram **mau contato no cabo dos
+  halls** (confirmado mexendo no cabo com o motor parado). Contador de
+  inválidos crescendo = conferir esse cabo primeiro.
 - Faltas `GDF` e `VGS_Lx` aparecem enquanto MOSFETs e shunts do CSA interno
   não estão soldados. É o comportamento correto do driver, não defeito.
 
@@ -84,9 +116,17 @@ PA2, que aqui é o `LSCS_A`.
   ENABLE ou `COAST`). Transporte SPI e despertar são os validados; o resto
   falta testar com o console de bancada, em especial `e`/`k`/`v` (planar) e
   `c`/`p` (reset de falha).
-- Auto-zero (`a`) lia ~0,41 V em vez de 1,65 V. Causa provável: `analogRead`
-  em 10 bits convertido com /4095 (512 contagens = 0,413 V). Corrigido com
-  `analogReadResolution(12)`; falta confirmar em bancada.
+- Rotina de calibração do usuário, hoje em `testes/11_despertar_calibracao.cpp`
+  (saiu do `main.cpp` sem commit e foi recriada; o `main.cpp` recebe os testes
+  de bancada da vez). `despertarDriver()` configura,
+  acorda, calibra os offsets dos amplificadores internos e externos com a
+  ponte em COAST, sai do COAST e trava os registradores. Use-o em todo
+  despertar, inclusive na volta do planar pelo ENABLE (não `drv.retomar()`
+  direto). Não testado na placa; a janela de offset (1,65 ± 0,20 V) é chute
+  inicial.
+- PWM sem motor (modo 4 / `testes/10_pwm.cpp`, 2026-10-18): o usuário viu no
+  osciloscópio e acredita que os sinais estão corretos, mas sem registro de
+  frequência, larguras e tempo morto medidos. Medir antes da malha aberta.
 - `PLACA_SEM_ESTAGIO_DE_POTENCIA` no console de bancada está em `1`. Colocar
   em `0` só depois de soldar o estágio de potência.
 - Gate drive (`0x03`, `0x04`) e OCP (`0x05`) estão nos valores de reset, não

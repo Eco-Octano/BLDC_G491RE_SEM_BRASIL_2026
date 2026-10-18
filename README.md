@@ -119,9 +119,15 @@ uma corresponde a um build que falha de um jeito diferente:
 A 3 é a pior: compila, grava, e o firmware morre em silêncio antes da primeira
 linha do seu código.
 
-No Windows há ainda uma sexta: o GNU `ld` não lida com acento no caminho do
-projeto e o build falha com `cannot open map file`. Use um caminho ASCII ou as
-linhas `build_dir` / `libdeps_dir` comentadas no fim do `platformio.ini`.
+No Windows há ainda mais duas, resolvidas pelas linhas `build_dir` e
+`libdeps_dir` da seção `[platformio]`, que levam build e bibliotecas para
+`C:/pio/`: o GNU `ld` não lida com acento no caminho (`cannot open map file`),
+e o caminho deste projeto somado às pastas internas da SimpleFOC passa de 260
+caracteres, o que faz o GCC acusar `No such file or directory` num include
+que existe.
+
+Instalar biblioteca pelo PlatformIO Home **regrava o `platformio.ini` e apaga
+os comentários**. Edite o `lib_deps` à mão.
 
 ### Console de bancada
 
@@ -142,6 +148,39 @@ O `src/main.cpp` fica em branco para a aplicação. Para testar o driver, copie
 | `r` | 30 ciclos dormir → acordar, conta falhas de conferência |
 | `a` | auto-zero dos CSAs |
 | `t` | cronometra 100 leituras SPI |
+
+### Firmware de validação e releases
+
+`src/validacao/` é um firmware à parte, com ambiente próprio no PlatformIO,
+que reúne os testes de validação da placa num menu escolhido no boot:
+
+| tecla | modo |
+|---|---|
+| `1` | bancada do driver (os comandos da tabela acima) |
+| `2` | halls com a roda girada à mão: 30 trocas por volta |
+| `3` | despertar com calibração: offsets dos seis amplificadores, em ~1,65 V |
+| `4` | PWM sem motor para o osciloscópio (DRV dormindo, 48 V desligado) |
+
+Para trocar de modo, aperte o reset da Nucleo. Gravar sem mexer no
+`src/main.cpp`:
+
+```bash
+pio run -e validacao -t upload
+```
+
+Cada checkpoint validado vira um release no GitHub: basta criar e enviar uma
+tag `validacao-vX.Y`. O workflow `.github/workflows/release-validacao.yml`
+compila o ambiente `validacao` no GitHub, grava a tag na versão mostrada no
+console e anexa o `.elf` e o `.bin` ao release. Grave o `.elf`: o `.bin` não
+carrega endereço.
+
+```bash
+git tag -a validacao-v1.0 -m "Validacao: bancada, halls, offsets e PWM"
+```
+
+```bash
+git push origin validacao-v1.0
+```
 
 ### Configurar o driver
 
